@@ -87,7 +87,7 @@ if device == "cuda":
 max_lr = 6e-4
 min_lr = max_lr / 10
 warmpup_steps = 10
-max_steps = 50
+max_steps = 5000
 
 # can use other LR scheduler like OCP
 def get_lr(it):
@@ -101,7 +101,7 @@ def get_lr(it):
     return min_lr + coeff * (max_lr - min_lr)
 
 
-train_loader = DataLoaderLite(B = 8, T = 1024)
+train_loader = DataLoaderLite(B = 16, T = 1024)
 
 # expected initial loss = -ln(1/50257) ~ 10.9 ; 50257 is the total number of tokens, vocab size
 import time
