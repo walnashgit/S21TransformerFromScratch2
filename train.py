@@ -29,11 +29,11 @@ print(f"using device: {device}")
 
 # torch.manual_seed(42)
 if device == "cuda":
-    torch.cuda.manual_seed(42)
+    torch.cuda.manual_seed(1337)
 elif device == "mps":
-    torch.mps.manual_seed(42)
+    torch.mps.manual_seed(1337)
 else:
-    torch.manual_seed(42)
+    torch.manual_seed(1337)
 
 # model.eval()
 # model.to(device)
@@ -114,7 +114,7 @@ for step in range(max_steps):
     x, y = x.to(device), y.to(device)
     optimizer.zero_grad()
     if device == "cuda":
-        with torch.autocast(device_type=device, dtype=torch.bfloat16): # does not work for mps
+        with torch.autocast(device_type=device, dtype=torch.float16): # does not work for mps
             logits, loss = model(x, y)
     else:
         logits, loss = model(x, y)
