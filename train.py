@@ -17,9 +17,6 @@ def get_weights_file_path(epoch: str):
 
 # model = GPT.from_pretrained('gpt2') # loading weights from pretrained
 
-num_return_sequences = 2
-max_length = 20
-
 device = 'cpu'
 if torch.cuda.is_available():
     device = 'cuda'
