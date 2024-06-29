@@ -5,14 +5,9 @@ from torch.nn import functional as F
 import torch
 from model import GPTConfig
 from pathlib import Path
+from util import get_weights_file_path
+torch.cuda.empty_cache()
 
-
-def get_weights_file_path(epoch: str):
-    model_folder = "weights"
-    model_basename = "tmodel_"
-    model_filename = f"{model_basename}{epoch}.pt"
-    # return str(Path('../../../Me/ERA/S17/S16_code') / model_folder / model_filename)
-    return str(Path('.') / model_folder / model_filename)
 
 
 # model = GPT.from_pretrained('gpt2') # loading weights from pretrained
@@ -25,23 +20,13 @@ elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
 print(f"using device: {device}")
 
 # torch.manual_seed(42)
+torch.manual_seed(1337)
 if device == "cuda":
     torch.cuda.manual_seed(1337)
 elif device == "mps":
     torch.mps.manual_seed(1337)
-else:
-    torch.manual_seed(1337)
-
-# model.eval()
-# model.to(device)
 
 import tiktoken
-# inference code
-# enc = tiktoken.get_encoding('gpt2')
-# tokens = enc.encode("Hello,")
-# tokens = torch.tensor(tokens, dtype= torch.long) # (8,) #check tiktoken app
-# tokens = tokens.unsqueeze(0).repeat(num_return_sequences, 1) # (5, 8)
-# x = tokens.to(device)
 
 
 class DataLoaderLite:
@@ -83,45 +68,51 @@ if device == "cuda":
 
 max_lr = 6e-4
 min_lr = max_lr / 10
-warmpup_steps = 10
+warmup_steps = 10
 max_steps = 5000
 
 # can use other LR scheduler like OCP
 def get_lr(it):
-    if it < warmpup_steps:
-        return max_lr * (it + 1) / warmpup_steps
+    if it < warmup_steps:
+        return max_lr * (it + 1) / warmup_steps
     if it > max_steps:
         return min_lr
-    decay_ratio = (it - warmpup_steps) / (max_steps - warmpup_steps)
+    decay_ratio = (it - warmup_steps) / (max_steps - warmup_steps)
     assert 0 <= decay_ratio <= 1
     coeff = 0.5 * (1.0 + math.cos(math.pi * decay_ratio))
     return min_lr + coeff * (max_lr - min_lr)
 
 
-train_loader = DataLoaderLite(B = 16, T = 1024)
+train_loader = DataLoaderLite(B = 12, T = 1024)
 
 # expected initial loss = -ln(1/50257) ~ 10.9 ; 50257 is the total number of tokens, vocab size
 import time
 # optimizer = torch.optim.AdamW(model.parameters(), lr=3e-4, betas=(0.9, 0.95), eps=1e-8)
 optimizer = model.configure_optimizers(weight_decay=0.1, learning_rate=6e-4, device_type=device)
 Path("weights").mkdir(parents=True, exist_ok=True)
+scaler = torch.cuda.amp.GradScaler()
 for step in range(max_steps):
+    torch.cuda.empty_cache()
     t0 = time.time()
     x, y = train_loader.next_batch()
     x, y = x.to(device), y.to(device)
     optimizer.zero_grad()
     if device == "cuda":
-        with torch.autocast(device_type=device, dtype=torch.float16): # does not work for mps
+        with torch.autocast(device_type=device, dtype=torch.bfloat16): # does not work for mps
             logits, loss = model(x, y)
     else:
         logits, loss = model(x, y)
-    loss.backward()
-    norm = torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+    # loss.backward()
+    scaler.scale(loss).backward()
+    scaler.unscale_(optimizer)
+    norm = torch.nn.utils.clip_grad_norm(model.parameters(), 1.0)
     lr = get_lr(step)
     for param_group in optimizer.param_groups:
         param_group['lr'] = lr
 
-    optimizer.step()
+    # optimizer.step()
+    scaler.step(optimizer)  # optimizer.step
+    scaler.update()
     if device == "cuda":
         torch.cuda.synchronize()
     elif device == "mps":
@@ -129,6 +120,7 @@ for step in range(max_steps):
     t1 = time.time()
     dt = (t1 - t0) * 1000
     tokens_per_sec = (train_loader.B * train_loader.T) / (t1 - t0)
+    print(f'step{step} | loss: {loss.item()} | dt: {dt:.2f}ms | tok/sec: {tokens_per_sec: .2f} | norm: {norm: .2f} | lr {lr}')
     if step > 0 and (step % 1000 == 0 or step == max_steps - 1):
         model_filename = get_weights_file_path(f"{step:02d}")
         torch.save(
@@ -139,6 +131,5 @@ for step in range(max_steps):
             },
             model_filename
         )
-    print(f'step{step} | loss: {loss.item()} | dt: {dt:.2f}ms | tok/sec: {tokens_per_sec: .2f} | norm: {norm: .2f}')
 
 print(loss)
