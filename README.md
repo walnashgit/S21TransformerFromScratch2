@@ -25,6 +25,8 @@ from train import *
 torch.save(model.state_dict(), "S21_model.pth")
 ```
 
+### For training logs see the [notebook](https://github.com/walnashgit/S21TransformerFromScratch2/blob/main/S21TransformerFromScratch2.ipynb) file in the repo.
+
 ### Files
 
 
